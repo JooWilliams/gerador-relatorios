@@ -49,9 +49,15 @@ EXTENSO = {
     16: "dezesseis", 17: "dezessete", 18: "dezoito", 19: "dezenove", 20: "vinte",
     21: "vinte e uma", 22: "vinte e duas", 23: "vinte e três", 24: "vinte e quatro",
     25: "vinte e cinco", 26: "vinte e seis", 27: "vinte e sete", 28: "vinte e oito",
-    29: "vinte e nove", 30: "trinta", 31: "trinta e um"
+    29: "vinte e nove", 30: "trinta", 31: "trinta e um", 32: "trinta e duas", 33: "trinta e três",
+    34: "trinta e quatro", 35: "trinta e cinco", 36: "trinta e seis", 37: "trinta e sete", 38: "trinta e oito",
+    39: "trinta e nove", 40: "quarenta", 41: "quarenta e uma", 42: "quarenta e duas", 43: "quarenta e três",
+    44: "quarenta e quatro", 45: "quarenta e cinco", 46: "quarenta e seis", 47: "quarenta e sete",
+    48: "quarenta e oito", 49: "quarenta e nove", 50: "cinquenta", 51: "cinquenta e uma",
+    52: "cinquenta e duas", 53: "cinquenta e três", 54: "cinquenta e quatro", 55: "cinquenta e cinco",
+    56: "cinquenta e seis", 57: "cinquenta e sete", 58: "cinquenta e oito",59: "cinquenta e nove",
+    60: "sessenta"
 }
-
 
 # ============================================================
 # CLASSE DO PDF
@@ -74,18 +80,23 @@ class RelatorioPDF(FPDF):
         self.set_y(-15)
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(128, 128, 128)
-        self.cell(0, 10, f"Página {self.page_no()} de {{nb}}", 0, 0, "R")
+        # self.cell(0, 10, f"Página {self.page_no()} de {{nb}}", 0, 0, "R")
 
 
 # ============================================================
 # FUNÇÕES AUXILIARES
 # ============================================================
 def write_mixed(pdf, parts):
-    """Escreve texto com trechos alternando negrito/normal."""
+    """Escreve texto com trechos alternando negrito/normal, sem cortar palavras."""
+    # Monta o texto usando markdown do fpdf2: **texto** = negrito
+    md_text = ""
     for part in parts:
-        style = "B" if part.get("bold") else ""
-        pdf.set_font("Helvetica", style, 12)
-        pdf.write(8, part["text"])
+        if part.get("bold"):
+            md_text += f"**{part['text']}**"
+        else:
+            md_text += part["text"]
+    pdf.set_font("Helvetica", "", 12)
+    pdf.multi_cell(0, 7, md_text, markdown=True)
 
 
 def sanitize(text):
@@ -110,6 +121,12 @@ def get_convenio_info(plano):
             "SAÚDE PMDF",
             "POLÍCIA MILITAR DO DISTRITO FEDERAL (PMDF)",
             "PMDF TÍPICO",
+        )
+    elif p == "FUSEX":
+        return (
+            "FUNDO DE SAÚDE DO EXÉRCITO (FUSEX)"
+            "HOSPITAL MILITAR DA ÁREA DE BRASÍLIA (HMAB)"
+            "FUSEX TÍPICO"
         )
     else:
         return (f"SAÚDE {p}", p, f"{p} TÍPICO")
