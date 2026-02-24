@@ -111,16 +111,13 @@ class RelatorioPDF(FPDF):
 
     def header(self):
         if self.logo_path and os.path.exists(self.logo_path):
-            # Se logo_only_first, só mostra na página 1
             if self.logo_only_first and self.page_no() > 1:
                 self.ln(10)
                 return
             logo_w = 45
             if self.logo_right:
-                # Logo posicionada à direita
                 x_pos = 210 - 20 - logo_w
             else:
-                # Logo centralizada
                 x_pos = (210 - logo_w) / 2
             self.image(self.logo_path, x=x_pos, y=10, w=logo_w)
             self.ln(35)
@@ -158,7 +155,7 @@ def sanitize(text):
 
 
 def get_convenio_info(plano, is_aba=False):
-    """Retorna (saude, nome_completo, subtipo) baseado no plano."""
+    """Retorna (saude, nome_completo) baseado no plano."""
     p = plano.strip().upper()
     if p == "CBMDF":
         return (
@@ -176,14 +173,14 @@ def get_convenio_info(plano, is_aba=False):
             "HOSPITAL MILITAR DA ÁREA DE BRASÍLIA (HMAB)",
         )
     else:
-        return (f"SAÚDE {p}", p, f"{p} ABA" if is_aba else f"{p} TÍPICO")
+        return (f"SAÚDE {p}", p)
 
 
 # ============================================================
 # GERADOR PDF - MODELO TÍPICO (Psicoterapia Individual)
 # ============================================================
 def gerar_pdf_tipico(nome, plano, especialidade_label, sessoes, mes_ref, ano_ref, filial="Matriz"):
-    """Gera PDF modelo Típico (1 página) - logo centralizada."""
+    """Gera PDF modelo Típico (1 página) - logo à direita."""
 
     pdf = RelatorioPDF(logo_path=LOGO_PATH, logo_only_first=False, logo_right=True)
     pdf.alias_nb_pages()
@@ -228,10 +225,8 @@ def gerar_pdf_tipico(nome, plano, especialidade_label, sessoes, mes_ref, ano_ref
         {"text": " para o(a) paciente "},
         {"text": nome_upper, "bold": True},
         {"text": ", para o mês de "},
-        {"text": mes_nome, "bold": True},
-        {"text": " de "},
-        {"text": ano_ref, "bold": True},
-        {"text": "O(a) paciente necessita de acompanhamento constante na especialidade "
+        {"text": f"{mes_nome} de {ano_ref}.", "bold": True},
+        {"text": " O(a) paciente necessita de acompanhamento constante na especialidade "
                  "mencionada para obtenção de bom resultado terapêutico."},
     ])
     pdf.ln(10)
@@ -287,7 +282,7 @@ def gerar_pdf_aba(nome, plano, sessoes, mes_ref, ano_ref, filial="Matriz"):
     # --- Parágrafo introdutório ---
     nome_upper = nome.strip().upper()
     write_mixed(pdf, [
-        {"text": "Informamos que o paciente "},
+        {"text": "Informamos que o(a) paciente "},
         {"text": nome_upper, "bold": True},
         {"text": " foi encaminhado a esta clínica, por essa diretoria"},
         {"text": ", para atendimento em terapias multi e interdisciplinares, com uso da ciência "},
@@ -325,10 +320,7 @@ def gerar_pdf_aba(nome, plano, sessoes, mes_ref, ano_ref, filial="Matriz"):
         {"text": " sessões de "},
         {"text": "TERAPIA ABA", "bold": True},
         {"text": " no mês de "},
-        {"text": mes_nome, "bold": True},
-        {"text": " de "},
-        {"text": str(ano_ref), "bold": True},
-        {"text": "."},
+        {"text": f"{mes_nome} de {ano_ref}.", "bold": True},
     ])
     pdf.ln(12)
 
@@ -356,10 +348,13 @@ def main():
     headers = [cell.value.strip() if cell.value else "" for cell in ws[1]]
     idx = {h: i for i, h in enumerate(headers)}
 
-    # Estruturas de agrupamento
+    print(f"Colunas encontradas: {headers}")
+    print(f"Índices: {idx}")
+    print()
+
     # Primeiro passo: coleta todas as sessões por paciente
-    # paciente_sessoes: (paciente, plano, filial) -> {tipo_upper: contagem}
-    paciente_sessoes = defaultdict(lambda: defaultdict(int))
+    # paciente_sessoes: (paciente, plano, filial) -> lista de (tipo_atend, especialidade_profissional)
+    paciente_sessoes = defaultdict(list)
     meses_encontrados = set()
 
     for row in ws.iter_rows(min_row=2, values_only=True):
@@ -368,6 +363,7 @@ def main():
         tipo_atend = row[idx[COL_TIPO_ATENDIMENTO]]
         data = row[idx[COL_DATA]]
         filial = row[idx[COL_TIPO_FILIAL]]
+        especialidade_prof = row[idx["Especialidade"]] if "Especialidade" in idx else ""
 
         if not paciente or not tipo_atend:
             continue
@@ -383,27 +379,42 @@ def main():
 
         tipo_upper = tipo_atend.strip().upper()
         filial_nome = filial.strip() if filial else "Matriz"
+        esp_prof = especialidade_prof.strip() if especialidade_prof else ""
         chave = (paciente.strip(), plano.strip(), filial_nome)
-        paciente_sessoes[chave][tipo_upper] += 1
+        paciente_sessoes[chave].append((tipo_upper, esp_prof))
 
     # Segundo passo: decide ABA ou Típico por paciente
-    # Se o paciente tem QUALQUER sessão que não seja Psicoterapia Individual -> tudo vira ABA
-    # Se o paciente só tem Psicoterapia Individual -> Típico
+    # Regras:
+    #   1. Se o paciente tem mais de 5 sessões -> ABA
+    #   2. Se tem até 5 sessões:
+    #      - Se TODOS os profissionais são "Psicólogo Clínico" -> Típico
+    #      - Se QUALQUER profissional é outra especialidade -> ABA
     aba_contagem = defaultdict(int)
     tipico_contagem = defaultdict(int)
 
-    for chave, tipos in paciente_sessoes.items():
-        tem_aba = any(t != "PSICOTERAPIA INDIVIDUAL" for t in tipos)
+    for chave, sessoes_lista in paciente_sessoes.items():
+        total_sessoes = len(sessoes_lista)
+        especialidades_prof = [esp for _, esp in sessoes_lista]
 
-        if tem_aba:
-            # Soma TODAS as sessões (incluindo Psicoterapia Individual) no ABA
-            total = sum(tipos.values())
-            aba_contagem[chave] = total
+        if total_sessoes > 5:
+            # Mais de 5 sessões -> sempre ABA
+            aba_contagem[chave] = total_sessoes
         else:
-            # Só tem Psicoterapia Individual -> Típico
-            especialidade_label = MAPA_ESPECIALIDADE.get("PSICOTERAPIA INDIVIDUAL", "PSICOLOGIA")
-            chave_tipico = (chave[0], chave[1], especialidade_label, chave[2])
-            tipico_contagem[chave_tipico] = tipos["PSICOTERAPIA INDIVIDUAL"]
+            # Até 5 sessões -> verificar especialidade do profissional
+            todos_psicologo_clinico = all(
+                esp.upper() == "PSICÓLOGO CLÍNICO" or esp.upper() == "PSICOLOGO CLINICO"
+                for esp in especialidades_prof
+                if esp  # ignora vazios
+            )
+
+            if todos_psicologo_clinico and especialidades_prof:
+                # Todos são Psicólogo Clínico -> Típico
+                especialidade_label = "PSICOLOGIA"
+                chave_tipico = (chave[0], chave[1], especialidade_label, chave[2])
+                tipico_contagem[chave_tipico] = total_sessoes
+            else:
+                # Algum profissional é ABA/Fono/Fisio/etc -> ABA
+                aba_contagem[chave] = total_sessoes
 
     # Determina mês/ano de referência
     if meses_encontrados:
@@ -421,8 +432,11 @@ def main():
     # Gera PDFs ABA
     print("--- RELATÓRIOS ABA ---")
     for (paciente, plano, filial), sessoes in sorted(aba_contagem.items()):
-        caminho = gerar_pdf_aba(paciente, plano, sessoes, mes_ref, ano_ref, filial)
-        print(f"✓ {paciente:<40} | TERAPIA ABA          | {sessoes:>2} sessões | {filial}")
+        try:
+            caminho = gerar_pdf_aba(paciente, plano, sessoes, mes_ref, ano_ref, filial)
+            print(f"✓ {paciente:<40} | TERAPIA ABA          | {sessoes:>2} sessões | {filial}")
+        except Exception as e:
+            print(f"✗ ERRO em {paciente}: {e}")
         total += 1
 
     print()
@@ -430,8 +444,11 @@ def main():
     # Gera PDFs Típico
     print("--- RELATÓRIOS TÍPICO ---")
     for (paciente, plano, especialidade, filial), sessoes in sorted(tipico_contagem.items()):
-        caminho = gerar_pdf_tipico(paciente, plano, especialidade, sessoes, mes_ref, ano_ref, filial)
-        print(f"✓ {paciente:<40} | {especialidade:<20} | {sessoes:>2} sessões | {filial}")
+        try:
+            caminho = gerar_pdf_tipico(paciente, plano, especialidade, sessoes, mes_ref, ano_ref, filial)
+            print(f"✓ {paciente:<40} | {especialidade:<20} | {sessoes:>2} sessões | {filial}")
+        except Exception as e:
+            print(f"✗ ERRO em {paciente}: {e}")
         total += 1
 
     print(f"\n{'='*70}")
