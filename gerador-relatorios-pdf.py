@@ -4,12 +4,15 @@ from collections import defaultdict
 from fpdf import FPDF
 import openpyxl
 from datetime import datetime
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # ============================================================
 # CONFIGURAÇÕES - AJUSTE AQUI
 # ============================================================
 ARQUIVO_EXCEL = r"C:\Documentos\Projects\pyCharm\gera-relatorios\CBMDF\atendimentos-cbmdf.xlsx"
 LOGO_PATH = r"C:\Documentos\Projects\pyCharm\gera-relatorios\logo_PNG_SEMFUNDO_01.png"
+TIMBRADO_PATH = r"C:\Documentos\Projects\pyCharm\gera-relatorios\papaeltimbrado.png"
 PASTA_SAIDA = r"C:\Documentos\Projects\pyCharm\gera-relatorios\relatorios"
 
 # Nomes das colunas na planilha (Plano e Tipo Atendimento invertidos na planilha)
@@ -99,9 +102,10 @@ TEXTO_PROPOSTA_INTERVENCAO_3 = (
 # CLASSE DO PDF
 # ============================================================
 class RelatorioPDF(FPDF):
-    def __init__(self, logo_path=None, logo_only_first=False, logo_right=False):
+    def __init__(self, logo_path=None, timbrado_path=None , logo_only_first=False, logo_right=False):
         super().__init__()
         self.logo_path = logo_path
+        self.timbrado_path = timbrado_path
         self.logo_only_first = logo_only_first
         self.logo_right = logo_right
         # Margens ABNT: 3cm esquerda/superior, 2cm direita/inferior
@@ -110,6 +114,10 @@ class RelatorioPDF(FPDF):
         self.set_top_margin(30)
 
     def header(self):
+        # 1. Papel timbrado como fundo (todas as páginas)
+        if self.timbrado_path and os.path.exists(self.timbrado_path):
+            self.image(self.timbrado_path, x=0, y=0, w=210, h=297)
+        # Logo Colorida
         if self.logo_path and os.path.exists(self.logo_path):
             if self.logo_only_first and self.page_no() > 1:
                 self.ln(10)
@@ -125,10 +133,7 @@ class RelatorioPDF(FPDF):
             self.ln(10)
 
     def footer(self):
-        self.set_y(-20)
-        self.set_font("Helvetica", "I", 8)
-        self.set_text_color(128, 128, 128)
-        # self.cell(0, 10, f"Página {self.page_no()} de {{nb}}", 0, 0, "R")
+        pass
 
 
 # ============================================================
@@ -182,10 +187,9 @@ def get_convenio_info(plano, is_aba=False):
 def gerar_pdf_tipico(nome, plano, especialidade_label, sessoes, mes_ref, ano_ref, filial="Matriz"):
     """Gera PDF modelo Típico (1 página) - logo à direita."""
 
-    pdf = RelatorioPDF(logo_path=LOGO_PATH, logo_only_first=False, logo_right=True)
-    pdf.alias_nb_pages()
+    pdf = RelatorioPDF(logo_path=LOGO_PATH, timbrado_path=TIMBRADO_PATH, logo_only_first=False, logo_right=True)
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_auto_page_break(auto=True, margin=35)
 
     # --- Data ---
     pdf.set_font("Helvetica", "B", 12)
@@ -250,10 +254,9 @@ def gerar_pdf_tipico(nome, plano, especialidade_label, sessoes, mes_ref, ano_ref
 def gerar_pdf_aba(nome, plano, sessoes, mes_ref, ano_ref, filial="Matriz"):
     """Gera PDF modelo ABA (2 páginas) - logo à direita, só na 1ª página."""
 
-    pdf = RelatorioPDF(logo_path=LOGO_PATH, logo_only_first=True, logo_right=True)
-    pdf.alias_nb_pages()
+    pdf = RelatorioPDF(logo_path=LOGO_PATH, timbrado_path=TIMBRADO_PATH, logo_only_first=True, logo_right=True)
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_auto_page_break(auto=True, margin=35)
 
     # --- Data ---
     pdf.set_font("Helvetica", "B", 12)
@@ -348,9 +351,10 @@ def main():
     headers = [cell.value.strip() if cell.value else "" for cell in ws[1]]
     idx = {h: i for i, h in enumerate(headers)}
 
-    print(f"Colunas encontradas: {headers}")
-    print(f"Índices: {idx}")
-    print()
+    # Para mostrar as colunas e os indices da planilha
+    #print(f"Colunas encontradas: {headers}")
+    #print(f"Índices: {idx}")
+    #print()
 
     # Primeiro passo: coleta todas as sessões por paciente
     # paciente_sessoes: (paciente, plano, filial) -> lista de (tipo_atend, especialidade_profissional)
